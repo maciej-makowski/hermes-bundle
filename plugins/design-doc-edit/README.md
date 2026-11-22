@@ -17,7 +17,8 @@ the count.
 
 They are also prompt-free by construction: the scope check is code, not a model decision.
 Every call, success or failure, appends one JSON line to `log/edits.jsonl` next to the
-plugin.
+plugin. A malformed `roots.json` also writes one `roots_invalid` event the first time it
+is seen.
 
 ## Install
 

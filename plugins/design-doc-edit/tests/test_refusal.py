@@ -225,6 +225,8 @@ class FileEditTests(unittest.TestCase):
         self.assertEqual(self.doc.read_text(encoding="utf-8"), "one\ntwo\n")
         events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
         self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["path"], dd._ROOTS_PATH)
+        self.assertIn("roots.json", events[0]["error"])
 
     def test_valid_roots_file_narrows_scope(self):
         pathlib.Path(dd._ROOTS_PATH).write_text(
@@ -261,6 +263,10 @@ class FileEditTests(unittest.TestCase):
         )
         self.assertFalse(result["success"])
         self.assertIn("roots.json is invalid", result["error"])
+        events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["path"], dd._ROOTS_PATH)
+        self.assertTrue(events[0]["error"])
 
     def test_roots_invalid_logged_once_per_process(self):
         pathlib.Path(dd._ROOTS_PATH).write_text('[""]', encoding="utf-8")
