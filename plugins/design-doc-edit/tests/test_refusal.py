@@ -3,6 +3,7 @@
 The plugin directory name contains a hyphen, so the module is loaded from its file path
 rather than imported by name.
 """
+import hashlib
 import importlib.util
 import json
 import os
@@ -139,6 +140,7 @@ class FileEditTests(unittest.TestCase):
             self.assertFalse(result["success"])
             self.assertIn("outside the allowed roots", result["error"])
             self.assertEqual(outside.read_text(encoding="utf-8"), "x")
+            self.assertEqual(len(self.log_lines()), 1)
         finally:
             outside.unlink()
             os.rmdir(outside.parent)
@@ -195,6 +197,7 @@ class FileEditTests(unittest.TestCase):
             self.assertFalse(result["success"], name)
             self.assertIn("protected", result["error"], name)
             self.assertEqual(path.read_text(encoding="utf-8"), "SECRET=1\n", name)
+        self.assertEqual(len(self.log_lines()), 7)
 
     def test_git_internals_refuse(self):
         gitdir = self.root / ".git"
@@ -207,6 +210,7 @@ class FileEditTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn(".git is a protected path", result["error"])
         self.assertEqual(config.read_text(encoding="utf-8"), "[core]\n")
+        self.assertEqual(len(self.log_lines()), 1)
 
     def test_nul_path_refuses_and_logs(self):
         result = json.loads(
@@ -215,6 +219,7 @@ class FileEditTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("refused", result["error"])
         self.assertFalse(self.log_lines()[0]["ok"])
+        self.assertEqual(len(self.log_lines()), 1)
 
     def test_malformed_roots_file_fails_closed(self):
         pathlib.Path(dd._ROOTS_PATH).write_text('[""]', encoding="utf-8")
@@ -286,9 +291,13 @@ class FileEditTests(unittest.TestCase):
         )
         self.assertFalse(result["success"])
         self.assertIn("non-empty list", result["error"])
-        events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
+        lines = self.log_lines()
+        self.assertEqual(len(lines), 2)
+        events = [line for line in lines if line.get("event") == "roots_invalid"]
         self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["path"], dd._ROOTS_PATH)
         self.assertIn("non-empty list", events[0]["error"])
+        self.assertFalse([line for line in lines if "ok" in line][0]["ok"])
 
     def test_roots_non_string_entry_fails_closed(self):
         pathlib.Path(dd._ROOTS_PATH).write_text("[1]", encoding="utf-8")
@@ -297,8 +306,11 @@ class FileEditTests(unittest.TestCase):
         )
         self.assertFalse(result["success"])
         self.assertIn("non-empty list", result["error"])
-        events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
+        lines = self.log_lines()
+        self.assertEqual(len(lines), 2)
+        events = [line for line in lines if line.get("event") == "roots_invalid"]
         self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["path"], dd._ROOTS_PATH)
 
     def test_roots_invalid_json_fails_closed(self):
         pathlib.Path(dd._ROOTS_PATH).write_text("{not json", encoding="utf-8")
@@ -307,8 +319,12 @@ class FileEditTests(unittest.TestCase):
         )
         self.assertFalse(result["success"])
         self.assertIn("roots.json is invalid", result["error"])
-        events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
+        lines = self.log_lines()
+        self.assertEqual(len(lines), 2)
+        events = [line for line in lines if line.get("event") == "roots_invalid"]
         self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["path"], dd._ROOTS_PATH)
+        self.assertTrue(events[0]["error"])
 
     def test_root_slash_allows_any_path(self):
         pathlib.Path(dd._ROOTS_PATH).write_text(json.dumps(["/"]), encoding="utf-8")
@@ -324,6 +340,120 @@ class FileEditTests(unittest.TestCase):
         events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
         self.assertEqual(len(events), 1)
         self.assertEqual(len(self.log_lines()), 3)  # one event plus two call records
+
+
+class LimitsAndAtomicityTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.tmp.name)
+        self.doc = self.root / "doc.md"
+        self.doc.write_text("one\ntwo\n", encoding="utf-8")
+        self._old_roots = dd._DEFAULT_ROOTS
+        self._old_log = dd._LOG_PATH
+        self._old_roots_path = dd._ROOTS_PATH
+        dd._DEFAULT_ROOTS = [str(self.root)]
+        dd._LOG_PATH = str(self.root / "edits.jsonl")
+        dd._ROOTS_PATH = str(self.root / "roots.json")
+        dd._ROOTS_LOGGED.clear()
+
+    def tearDown(self):
+        dd._DEFAULT_ROOTS = self._old_roots
+        dd._LOG_PATH = self._old_log
+        dd._ROOTS_PATH = self._old_roots_path
+        self.tmp.cleanup()
+
+    def test_size_limit_refuses(self):
+        big = self.root / "big.md"
+        with open(big, "wb") as f:
+            f.truncate(dd._MAX_BYTES + 1)
+        result = json.loads(
+            dd._edit_file(str(big), [{"find": "x", "replace": "y"}], "doc_replace", None)
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("larger than", result["error"])
+
+    def test_edit_count_limit_refuses(self):
+        edits = [{"find": "one", "replace": str(i)} for i in range(dd._MAX_EDITS + 1)]
+        result = json.loads(dd._edit_file(str(self.doc), edits, "doc_batch", None))
+        self.assertFalse(result["success"])
+        self.assertIn("more than", result["error"])
+
+    def test_non_utf8_refuses(self):
+        bad = self.root / "bad.md"
+        bad.write_bytes(b"\xff\xfe\x00binary")
+        result = json.loads(
+            dd._edit_file(str(bad), [{"find": "a", "replace": "b"}], "doc_replace", None)
+        )
+        self.assertFalse(result["success"])
+
+    def test_regex_success_with_backreference(self):
+        result = json.loads(
+            dd._edit_file(
+                str(self.doc),
+                [{"find": "(one)", "replace": "[\\1]", "regex": True, "expected_count": 1}],
+                "doc_replace",
+                None,
+            )
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), "[one]\ntwo\n")
+
+    def test_empty_replace_deletes(self):
+        result = json.loads(
+            dd._edit_file(str(self.doc), [{"find": "two\n", "replace": ""}], "doc_replace", None)
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), "one\n")
+
+    def test_result_carries_sha256_and_note(self):
+        result = json.loads(
+            dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+        )
+        expected = hashlib.sha256(self.doc.read_bytes()).hexdigest()
+        self.assertEqual(result["sha256_after"], expected)
+        self.assertIn("re-read", result["note"])
+
+    def test_mode_preserved(self):
+        os.chmod(self.doc, 0o640)
+        result = json.loads(
+            dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(os.stat(self.doc).st_mode & 0o777, 0o640)
+
+    def test_no_temp_files_after_success(self):
+        dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+        leftovers = [p.name for p in self.root.iterdir() if p.name.startswith(".docedit-")]
+        self.assertEqual(leftovers, [])
+
+    def test_replace_failure_leaves_original_and_cleans_temp(self):
+        from unittest import mock
+
+        with mock.patch("os.replace", side_effect=OSError("boom")):
+            result = json.loads(
+                dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+            )
+        self.assertFalse(result["success"])
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), "one\ntwo\n")
+        leftovers = [p.name for p in self.root.iterdir() if p.name.startswith(".docedit-")]
+        self.assertEqual(leftovers, [])
+
+    def test_fsync_called_for_file_and_directory(self):
+        from unittest import mock
+
+        calls = []
+        real = os.fsync
+
+        def counting(fd):
+            calls.append(fd)
+            return real(fd)
+
+        with mock.patch("os.fsync", side_effect=counting):
+            result = json.loads(
+                dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+            )
+        self.assertTrue(result["success"])
+        self.assertGreaterEqual(len(calls), 2)
 
 
 class RegisteredSurfaceTests(unittest.TestCase):
