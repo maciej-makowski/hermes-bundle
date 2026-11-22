@@ -178,6 +178,19 @@ class FileEditTests(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(self.doc.read_text(encoding="utf-8"), "bbb\n")
 
+    def test_regex_is_case_sensitive(self):
+        self.doc.write_text("A a\n", encoding="utf-8")
+        result = json.loads(
+            dd._edit_file(
+                str(self.doc),
+                [{"find": "a", "replace": "b", "regex": True, "expected_count": 1}],
+                "doc_replace",
+                None,
+            )
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), "A b\n")
+
     def test_literal_match_is_case_sensitive(self):
         self.doc.write_text("Alpha alpha alpha\n", encoding="utf-8")
         result = json.loads(
