@@ -2,7 +2,6 @@
 # Report drift between installed components and this repo's HEAD.
 set -euo pipefail
 REPO="maciej-makowski/hermes-bundle"
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HERMES="${HERMES_HOME:-$HOME/.hermes}"
 CLONE="$(mktemp -d)"; trap 'rm -rf "$CLONE"' EXIT
 git clone --depth 1 "https://github.com/$REPO.git" "$CLONE/repo" >/dev/null

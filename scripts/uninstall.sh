@@ -24,6 +24,9 @@ while IFS=$'\t' read -r id type path; do
     skill) hermes skills uninstall "$id" --yes || true ;;
     widget|skin|pet)
       dest="$HERMES/$(case "$type" in widget) echo tui-widgets;; skin) echo skins;; pet) echo pets;; esac)"
-      [ -e "$dest/$(basename "$path")" ] && rm -rf "$dest/$(basename "$path")" ;;
+      target="$dest/$(basename "$path")"
+      if [ -n "$target" ] && [ "$target" != "$dest" ] && [ -e "$target" ]; then
+        rm -rf -- "$target"
+      fi ;;
   esac
 done < <(manifest)
