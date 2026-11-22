@@ -1,0 +1,7 @@
+name: design-doc-edit
+version: "1.1.0"
+description: Scoped, atomic, count-checked design-doc editing tools (doc_replace, doc_batch). Prompt-free by construction; every call is logged.
+license: MIT
+provides_tools:
+  - doc_replace
+  - doc_batch
