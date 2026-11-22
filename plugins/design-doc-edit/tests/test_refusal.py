@@ -436,6 +436,26 @@ class FileEditTests(unittest.TestCase):
         self.assertTrue(events[0]["error"])
         self.assertFalse([line for line in lines if "ok" in line][0]["ok"])
 
+    def test_multiple_roots_allow_either(self):
+        other = pathlib.Path(tempfile.mkdtemp())
+        doc2 = other / "doc2.md"
+        doc2.write_text("one\n", encoding="utf-8")
+        pathlib.Path(dd._ROOTS_PATH).write_text(
+            json.dumps([str(self.root), str(other)]), encoding="utf-8"
+        )
+        try:
+            first = json.loads(
+                dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+            )
+            second = json.loads(
+                dd._edit_file(str(doc2), [{"find": "one", "replace": "1"}], "doc_replace", None)
+            )
+            self.assertTrue(first["success"])
+            self.assertTrue(second["success"])
+        finally:
+            doc2.unlink()
+            other.rmdir()
+
     def test_root_slash_allows_any_path(self):
         pathlib.Path(dd._ROOTS_PATH).write_text(json.dumps(["/"]), encoding="utf-8")
         result = json.loads(
