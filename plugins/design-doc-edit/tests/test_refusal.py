@@ -87,6 +87,29 @@ class FileEditTests(unittest.TestCase):
             return []
         return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
+    def test_batch_success_logs_one_record(self):
+        result = json.loads(
+            dd._edit_file(
+                str(self.doc),
+                [{"find": "one", "replace": "1"}, {"find": "two", "replace": "2"}],
+                "doc_batch",
+                None,
+            )
+        )
+        self.assertTrue(result["success"])
+        lines = self.log_lines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0]["tool"], "doc_batch")
+        self.assertTrue(lines[0]["ok"])
+
+    def test_log_directory_is_created(self):
+        dd._LOG_PATH = str(self.root / "deep" / "log" / "edits.jsonl")
+        result = json.loads(
+            dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+        )
+        self.assertTrue(result["success"])
+        self.assertTrue((self.root / "deep" / "log" / "edits.jsonl").exists())
+
     def test_replace_applies_and_logs_fields(self):
         result = json.loads(
             dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
@@ -199,6 +222,23 @@ class FileEditTests(unittest.TestCase):
             self.assertFalse(result["success"])
             self.assertIn("protected", result["error"])
             self.assertEqual(env.read_text(encoding="utf-8"), "SECRET=1\n")
+        finally:
+            link.unlink()
+
+    def test_symlink_to_git_internals_refuses(self):
+        gitdir = self.root / ".git"
+        gitdir.mkdir()
+        config = gitdir / "config"
+        config.write_text("[core]\n", encoding="utf-8")
+        link = self.root / "innocent2.md"
+        link.symlink_to(config)
+        try:
+            result = json.loads(
+                dd._edit_file(str(link), [{"find": "core", "replace": "x"}], "doc_replace", None)
+            )
+            self.assertFalse(result["success"])
+            self.assertIn(".git is a protected path", result["error"])
+            self.assertEqual(config.read_text(encoding="utf-8"), "[core]\n")
         finally:
             link.unlink()
 
@@ -430,6 +470,16 @@ class LimitsAndAtomicityTests(unittest.TestCase):
         result = json.loads(dd._edit_file(str(self.doc), edits, "doc_batch", None))
         self.assertTrue(result["success"])
 
+    def test_chown_failure_still_writes(self):
+        from unittest import mock
+
+        with mock.patch("os.chown", side_effect=OSError("nope")):
+            result = json.loads(
+                dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+            )
+        self.assertTrue(result["success"])
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), "1\ntwo\n")
+
     def test_chown_uses_original_owner(self):
         from unittest import mock
 
@@ -520,6 +570,15 @@ class LimitsAndAtomicityTests(unittest.TestCase):
             )
         self.assertTrue(result["success"])
         self.assertGreaterEqual(len(calls), 2)
+
+
+class DefaultsTests(unittest.TestCase):
+    def test_documented_defaults(self):
+        self.assertEqual(dd._DEFAULT_ROOTS, ["/home/hermes/hermes-designs"])
+        self.assertEqual(dd._MAX_BYTES, 8 * 1024 * 1024)
+        self.assertEqual(dd._MAX_EDITS, 200)
+        self.assertEqual(dd._LOG_PATH, os.path.join(dd._PLUGIN_DIR, "log", "edits.jsonl"))
+        self.assertEqual(dd._ROOTS_PATH, os.path.join(dd._PLUGIN_DIR, "roots.json"))
 
 
 class RegisteredSurfaceTests(unittest.TestCase):
