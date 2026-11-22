@@ -13,6 +13,21 @@ jobs:
       - name: shellcheck
         run: shellcheck scripts/*.sh
 
+  plugin-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: unit tests
+        run: |
+          set -e
+          found=0
+          for d in plugins/*/tests; do
+            [ -d "$d" ] || continue
+            found=1
+            python3 -m unittest discover -s "$d" -v
+          done
+          [ "$found" -eq 1 ]
+
   secrets:
     runs-on: ubuntu-latest
     steps:
