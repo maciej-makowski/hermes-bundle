@@ -72,6 +72,7 @@ class FileEditTests(unittest.TestCase):
         dd._DEFAULT_ROOTS = [str(self.root)]
         dd._LOG_PATH = str(self.root / "edits.jsonl")
         dd._ROOTS_PATH = str(self.root / "roots.json")  # absent, so the default root applies
+        dd._ROOTS_LOGGED.clear()
 
     def tearDown(self):
         dd._DEFAULT_ROOTS = self._old_roots
@@ -220,7 +221,7 @@ class FileEditTests(unittest.TestCase):
             dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
         )
         self.assertFalse(result["success"])
-        self.assertIn("outside the allowed roots", result["error"])
+        self.assertIn("roots.json is invalid", result["error"])
         self.assertEqual(self.doc.read_text(encoding="utf-8"), "one\ntwo\n")
         events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
         self.assertEqual(len(events), 1)
@@ -235,6 +236,38 @@ class FileEditTests(unittest.TestCase):
         )
         self.assertFalse(result["success"])
         self.assertIn("outside the allowed roots", result["error"])
+
+    def test_valid_roots_file_allows_its_own_root(self):
+        pathlib.Path(dd._ROOTS_PATH).write_text(json.dumps([str(self.root)]), encoding="utf-8")
+        result = json.loads(
+            dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), "1\ntwo\n")
+
+    def test_roots_file_with_nul_entry_fails_closed(self):
+        pathlib.Path(dd._ROOTS_PATH).write_text(json.dumps(["\u0000bad"]), encoding="utf-8")
+        result = json.loads(
+            dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("roots.json is invalid", result["error"])
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), "one\ntwo\n")
+
+    def test_dangling_roots_symlink_fails_closed(self):
+        pathlib.Path(dd._ROOTS_PATH).symlink_to(self.root / "missing-target.json")
+        result = json.loads(
+            dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("roots.json is invalid", result["error"])
+
+    def test_roots_invalid_logged_once_per_process(self):
+        pathlib.Path(dd._ROOTS_PATH).write_text('[""]', encoding="utf-8")
+        for _ in range(2):
+            dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+        events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
+        self.assertEqual(len(events), 1)
 
 
 class RegisteredSurfaceTests(unittest.TestCase):

@@ -36,14 +36,14 @@ plugin. Without that file the default is `/home/hermes/hermes-designs`:
 ["/home/hermes/hermes-designs"]
 ```
 
-Protected paths are always refused: `.env`, `.env.*`, `*.env`, `.envrc`, and any path
-inside a `.git` directory or a file named `.git`. Files over 8 MB, non-UTF-8 files, and
-batches over 200 edits are refused.
+Protected paths are always refused: `.env`, `.env.*`, `*.env`, `.envrc`, `*.envrc`, and
+any path inside a `.git` directory or a file named `.git`. Files over 8 MB, non-UTF-8
+files, and batches over 200 edits are refused.
 
 `roots.json` and `log/` are user state. They are not in this repository and survive
-reinstalls. A malformed `roots.json` (invalid JSON, an empty list, or a non-string entry)
-fails closed: no path is allowed, and the refusal is written to the audit log as a
-`roots_invalid` event.
+reinstalls. A malformed `roots.json` (invalid JSON, a dangling symlink, an empty list, or
+a non-string entry) fails closed: no path is allowed, the refusal names the file, and a
+`roots_invalid` event is written once.
 
 ## Behaviour
 

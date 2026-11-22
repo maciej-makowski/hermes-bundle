@@ -9,8 +9,10 @@ Registered tools (toolset: design_doc):
 
 Scope is enforced in code, not by an LLM: the target path's real path must sit
 under one of the roots in roots.json (next to this file). Protected paths
-(.env*, .git internals) are always refused. No subprocesses, no network.
-Every call — success or failure — appends one JSON line to log/edits.jsonl.
+(.env, .env.*, *.env, *.envrc, .git) are always refused. No subprocesses, no
+network. Every call, success or failure, appends one JSON line to
+log/edits.jsonl (a malformed roots.json adds one roots_invalid line, once per
+process).
 """
 
 import hashlib
@@ -26,6 +28,7 @@ _LOG_PATH = os.path.join(_PLUGIN_DIR, "log", "edits.jsonl")
 _ROOTS_PATH = os.path.join(_PLUGIN_DIR, "roots.json")
 _DEFAULT_ROOTS = ["/home/hermes/hermes-designs"]
 _PROTECTED_SUFFIXES = (".env", ".envrc")
+_ROOTS_LOGGED = set()
 
 
 def _protected_reason(name, rp):
@@ -49,8 +52,20 @@ def _log(entry):
         pass  # logging must never break the tool
 
 
+def _roots_failure(message):
+    if message not in _ROOTS_LOGGED:
+        _ROOTS_LOGGED.add(message)
+        _log({
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "event": "roots_invalid",
+            "path": _ROOTS_PATH,
+            "error": message,
+        })
+    return [], f"roots.json is invalid ({message}); fix or remove it next to the plugin"
+
+
 def _roots():
-    if not os.path.exists(_ROOTS_PATH):
+    if not os.path.lexists(_ROOTS_PATH):
         roots = _DEFAULT_ROOTS
     else:
         try:
@@ -60,23 +75,11 @@ def _roots():
                 raise ValueError("roots.json must be a non-empty list of non-empty strings")
             roots = data
         except (OSError, ValueError) as exc:
-            _log({
-                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "event": "roots_invalid",
-                "path": _ROOTS_PATH,
-                "error": str(exc),
-            })
-            return []
+            return _roots_failure(str(exc))
     try:
-        return [os.path.realpath(r) for r in roots]
+        return [os.path.realpath(r) for r in roots], None
     except (OSError, ValueError) as exc:
-        _log({
-            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "event": "roots_invalid",
-            "path": _ROOTS_PATH,
-            "error": str(exc),
-        })
-        return []
+        return _roots_failure(str(exc))
 
 
 def _check_scope(path):
@@ -85,9 +88,11 @@ def _check_scope(path):
         return None, "path is required"
     try:
         rp = os.path.realpath(path)
-        allowed = _roots()
     except (OSError, ValueError) as exc:
         return None, f"refused: {exc}"
+    allowed, roots_error = _roots()
+    if roots_error:
+        return None, f"refused: {roots_error}"
     if not any(rp == r or rp.startswith(r + os.sep) for r in allowed):
         return None, (
             f"refused: {path} resolves to {rp}, outside the allowed roots {allowed}; "
