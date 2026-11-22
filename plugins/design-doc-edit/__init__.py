@@ -9,7 +9,7 @@ Registered tools (toolset: design_doc):
 
 Scope is enforced in code, not by an LLM: the target path's real path must sit
 under one of the roots in roots.json (next to this file). Protected paths
-(.env, .env.*, *.env, *.envrc, .git) are always refused. No subprocesses, no
+(.env, .env.*, *.env, .envrc, *.envrc, .git) are always refused. No subprocesses, no
 network. Every call, success or failure, appends one JSON line to
 log/edits.jsonl (a malformed roots.json adds one roots_invalid line, once per
 process).
@@ -29,6 +29,13 @@ _ROOTS_PATH = os.path.join(_PLUGIN_DIR, "roots.json")
 _DEFAULT_ROOTS = ["/home/hermes/hermes-designs"]
 _PROTECTED_SUFFIXES = (".env", ".envrc")
 _ROOTS_LOGGED = set()
+
+
+def _within(rp, root):
+    """True when rp sits at or under root, including the '/' edge case."""
+    if rp == root:
+        return True
+    return rp.startswith(root.rstrip(os.sep) + os.sep)
 
 
 def _protected_reason(name, rp):
@@ -93,7 +100,7 @@ def _check_scope(path):
     allowed, roots_error = _roots()
     if roots_error:
         return None, f"refused: {roots_error}"
-    if not any(rp == r or rp.startswith(r + os.sep) for r in allowed):
+    if not any(_within(rp, r) for r in allowed):
         return None, (
             f"refused: {path} resolves to {rp}, outside the allowed roots {allowed}; "
             "edit roots.json next to the plugin to widen scope"

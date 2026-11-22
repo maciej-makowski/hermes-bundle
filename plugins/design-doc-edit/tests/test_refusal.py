@@ -127,6 +127,7 @@ class FileEditTests(unittest.TestCase):
         entry = self.log_lines()[0]
         self.assertFalse(entry["ok"])
         self.assertIn("error", entry)
+        self.assertEqual(len(self.log_lines()), 1)
 
     def test_path_outside_roots_refuses(self):
         outside = pathlib.Path(tempfile.mkdtemp()) / "other.md"
@@ -183,7 +184,7 @@ class FileEditTests(unittest.TestCase):
             os.rmdir(outside_dir)
 
     def test_protected_basenames_refuse(self):
-        for name in (".env", ".env.staging", ".env.example", ".envrc", "prod.env", ".git"):
+        for name in (".env", ".env.staging", ".env.example", ".envrc", "prod.env", "prod.envrc", ".git"):
             path = self.root / name
             path.write_text("SECRET=1\n", encoding="utf-8")
             result = json.loads(
@@ -222,11 +223,17 @@ class FileEditTests(unittest.TestCase):
         )
         self.assertFalse(result["success"])
         self.assertIn("roots.json is invalid", result["error"])
+        self.assertIn("non-empty list", result["error"])
         self.assertEqual(self.doc.read_text(encoding="utf-8"), "one\ntwo\n")
-        events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
+        lines = self.log_lines()
+        self.assertEqual(len(lines), 2)  # roots_invalid event plus the call record
+        events = [line for line in lines if line.get("event") == "roots_invalid"]
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["path"], dd._ROOTS_PATH)
-        self.assertIn("roots.json", events[0]["error"])
+        self.assertIn("non-empty list", events[0]["error"])
+        records = [line for line in lines if "ok" in line]
+        self.assertEqual(len(records), 1)
+        self.assertFalse(records[0]["ok"])
 
     def test_valid_roots_file_narrows_scope(self):
         pathlib.Path(dd._ROOTS_PATH).write_text(
@@ -255,6 +262,10 @@ class FileEditTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("roots.json is invalid", result["error"])
         self.assertEqual(self.doc.read_text(encoding="utf-8"), "one\ntwo\n")
+        events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["path"], dd._ROOTS_PATH)
+        self.assertIn("null", events[0]["error"].lower())
 
     def test_dangling_roots_symlink_fails_closed(self):
         pathlib.Path(dd._ROOTS_PATH).symlink_to(self.root / "missing-target.json")
@@ -266,7 +277,45 @@ class FileEditTests(unittest.TestCase):
         events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["path"], dd._ROOTS_PATH)
-        self.assertTrue(events[0]["error"])
+        self.assertIn("No such file", events[0]["error"])
+
+    def test_roots_empty_list_fails_closed(self):
+        pathlib.Path(dd._ROOTS_PATH).write_text("[]", encoding="utf-8")
+        result = json.loads(
+            dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("non-empty list", result["error"])
+        events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
+        self.assertEqual(len(events), 1)
+        self.assertIn("non-empty list", events[0]["error"])
+
+    def test_roots_non_string_entry_fails_closed(self):
+        pathlib.Path(dd._ROOTS_PATH).write_text("[1]", encoding="utf-8")
+        result = json.loads(
+            dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("non-empty list", result["error"])
+        events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
+        self.assertEqual(len(events), 1)
+
+    def test_roots_invalid_json_fails_closed(self):
+        pathlib.Path(dd._ROOTS_PATH).write_text("{not json", encoding="utf-8")
+        result = json.loads(
+            dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("roots.json is invalid", result["error"])
+        events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
+        self.assertEqual(len(events), 1)
+
+    def test_root_slash_allows_any_path(self):
+        pathlib.Path(dd._ROOTS_PATH).write_text(json.dumps(["/"]), encoding="utf-8")
+        result = json.loads(
+            dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+        )
+        self.assertTrue(result["success"])
 
     def test_roots_invalid_logged_once_per_process(self):
         pathlib.Path(dd._ROOTS_PATH).write_text('[""]', encoding="utf-8")
@@ -274,6 +323,7 @@ class FileEditTests(unittest.TestCase):
             dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
         events = [line for line in self.log_lines() if line.get("event") == "roots_invalid"]
         self.assertEqual(len(events), 1)
+        self.assertEqual(len(self.log_lines()), 3)  # one event plus two call records
 
 
 class RegisteredSurfaceTests(unittest.TestCase):
