@@ -140,7 +140,12 @@ if [ "$DRY" -eq 0 ]; then
     [ -n "$COMPONENT" ] && [ "$id" != "$COMPONENT" ] && continue
     case "$type" in
       plugin|catalog-plugin)
-        if [ "$(plugin_installed "$id")" != "True" ]; then echo "FAIL: $id not installed" >&2; exit 1; fi ;;
+        if [ "$(plugin_installed "$id")" != "True" ]; then echo "FAIL: $id not installed" >&2; exit 1; fi
+        if [ "$en" = "true" ] && [ "$ENABLE_MODE" != "off" ]; then
+          if ! hermes plugins list --json 2>/dev/null | grep -q "\"name\": \"$id\""; then
+            echo "FAIL: $id missing after enable" >&2; exit 1
+          fi
+        fi ;;
       skill)
         if ! skill_installed "$id"; then echo "FAIL: skill $id not installed" >&2; exit 1; fi ;;
       widget|skin|pet)
