@@ -3,7 +3,7 @@
 Registered tools (toolset: design_doc):
 
 - doc_replace: one literal or regex replacement, occurrence-count checked,
-  applied atomically (temp file + rename, mode and ownership preserved).
+  applied atomically (temp file + rename, mode preserved, owner preserved when permitted).
 - doc_batch:   many replacements in one call, applied in order against the
   evolving content, all-or-nothing, atomic.
 
