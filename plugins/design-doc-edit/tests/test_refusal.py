@@ -311,6 +311,8 @@ class FileEditTests(unittest.TestCase):
         events = [line for line in lines if line.get("event") == "roots_invalid"]
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["path"], dd._ROOTS_PATH)
+        self.assertIn("non-empty list", events[0]["error"])
+        self.assertFalse([line for line in lines if "ok" in line][0]["ok"])
 
     def test_roots_invalid_json_fails_closed(self):
         pathlib.Path(dd._ROOTS_PATH).write_text("{not json", encoding="utf-8")
@@ -325,6 +327,7 @@ class FileEditTests(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["path"], dd._ROOTS_PATH)
         self.assertTrue(events[0]["error"])
+        self.assertFalse([line for line in lines if "ok" in line][0]["ok"])
 
     def test_root_slash_allows_any_path(self):
         pathlib.Path(dd._ROOTS_PATH).write_text(json.dumps(["/"]), encoding="utf-8")
@@ -362,6 +365,22 @@ class LimitsAndAtomicityTests(unittest.TestCase):
         dd._ROOTS_PATH = self._old_roots_path
         self.tmp.cleanup()
 
+    def test_sibling_prefix_directory_refuses(self):
+        sibling = pathlib.Path(str(self.root) + "-evil")
+        sibling.mkdir()
+        target = sibling / "doc.md"
+        target.write_text("one\n", encoding="utf-8")
+        try:
+            result = json.loads(
+                dd._edit_file(str(target), [{"find": "one", "replace": "1"}], "doc_replace", None)
+            )
+            self.assertFalse(result["success"])
+            self.assertIn("outside the allowed roots", result["error"])
+            self.assertEqual(target.read_text(encoding="utf-8"), "one\n")
+        finally:
+            target.unlink()
+            sibling.rmdir()
+
     def test_size_limit_refuses(self):
         big = self.root / "big.md"
         with open(big, "wb") as f:
@@ -377,6 +396,36 @@ class LimitsAndAtomicityTests(unittest.TestCase):
         result = json.loads(dd._edit_file(str(self.doc), edits, "doc_batch", None))
         self.assertFalse(result["success"])
         self.assertIn("more than", result["error"])
+
+    def test_exact_size_limit_is_allowed(self):
+        big = self.root / "exact.md"
+        big.write_bytes(b"one\n" + b"a" * (dd._MAX_BYTES - 4))
+        result = json.loads(
+            dd._edit_file(str(big), [{"find": "one", "replace": "1"}], "doc_replace", None)
+        )
+        self.assertTrue(result["success"])
+
+    def test_exact_edit_count_limit_is_allowed(self):
+        self.doc.write_text(
+            "".join(f"l{i}\n" for i in range(dd._MAX_EDITS)), encoding="utf-8"
+        )
+        edits = [{"find": f"l{i}\n", "replace": f"L{i}\n"} for i in range(dd._MAX_EDITS)]
+        result = json.loads(dd._edit_file(str(self.doc), edits, "doc_batch", None))
+        self.assertTrue(result["success"])
+
+    def test_chown_uses_original_owner(self):
+        from unittest import mock
+
+        st = os.stat(self.doc)
+        with mock.patch("os.chown") as chown:
+            result = json.loads(
+                dd._edit_file(str(self.doc), [{"find": "one", "replace": "1"}], "doc_replace", None)
+            )
+        self.assertTrue(result["success"])
+        chown.assert_called_once()
+        args = chown.call_args[0]
+        self.assertEqual(args[1], st.st_uid)
+        self.assertEqual(args[2], st.st_gid)
 
     def test_non_utf8_refuses(self):
         bad = self.root / "bad.md"
