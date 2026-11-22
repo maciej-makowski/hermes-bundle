@@ -151,6 +151,43 @@ class FileEditTests(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(self.doc.read_text(encoding="utf-8"), "zero\n")
 
+    def test_regex_count_mismatch_refuses(self):
+        self.doc.write_text("aaa\n", encoding="utf-8")
+        result = json.loads(
+            dd._edit_file(
+                str(self.doc),
+                [{"find": "a", "replace": "b", "regex": True, "expected_count": 2}],
+                "doc_replace",
+                None,
+            )
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("match count 3", result["error"])
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), "aaa\n")
+
+    def test_regex_replaces_every_match(self):
+        self.doc.write_text("aaa\n", encoding="utf-8")
+        result = json.loads(
+            dd._edit_file(
+                str(self.doc),
+                [{"find": "a", "replace": "b", "regex": True, "expected_count": 3}],
+                "doc_replace",
+                None,
+            )
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), "bbb\n")
+
+    def test_literal_match_is_case_sensitive(self):
+        self.doc.write_text("Alpha alpha alpha\n", encoding="utf-8")
+        result = json.loads(
+            dd._edit_file(
+                str(self.doc), [{"find": "Alpha", "replace": "X"}], "doc_replace", None
+            )
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), "X alpha alpha\n")
+
     def test_batch_is_all_or_nothing(self):
         before = self.doc.read_bytes()
         edits = [
