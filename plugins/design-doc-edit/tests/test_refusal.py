@@ -138,6 +138,19 @@ class FileEditTests(unittest.TestCase):
         self.assertEqual([r["replacements"] for r in result["replacements"]], [1, 1])
         self.assertEqual(self.doc.read_text(encoding="utf-8"), "1\n2\n")
 
+    def test_batch_applies_in_order(self):
+        self.doc.write_text("two\n", encoding="utf-8")
+        result = json.loads(
+            dd._edit_file(
+                str(self.doc),
+                [{"find": "two", "replace": "one"}, {"find": "one", "replace": "zero"}],
+                "doc_batch",
+                None,
+            )
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), "zero\n")
+
     def test_batch_is_all_or_nothing(self):
         before = self.doc.read_bytes()
         edits = [
