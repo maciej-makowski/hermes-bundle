@@ -25,7 +25,17 @@ _PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _LOG_PATH = os.path.join(_PLUGIN_DIR, "log", "edits.jsonl")
 _ROOTS_PATH = os.path.join(_PLUGIN_DIR, "roots.json")
 _DEFAULT_ROOTS = ["/home/hermes/hermes-designs"]
-_PROTECTED_BASENAMES = {".env", ".env.local", ".env.production", ".envrc"}
+_PROTECTED_SUFFIXES = (".env", ".envrc")
+
+
+def _protected_reason(name, rp):
+    """Return a refusal reason when the path is protected, else None."""
+    parts = rp.split(os.sep)
+    if ".git" in parts:
+        return ".git is a protected path"
+    if name == ".env" or name.startswith(".env.") or name.endswith(_PROTECTED_SUFFIXES):
+        return f"{name} is a protected path"
+    return None
 _MAX_BYTES = 8 * 1024 * 1024
 _MAX_EDITS = 200
 
@@ -40,31 +50,52 @@ def _log(entry):
 
 
 def _roots():
-    roots = _DEFAULT_ROOTS
-    try:
-        with open(_ROOTS_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, list) and data and all(isinstance(r, str) and r for r in data):
+    if not os.path.exists(_ROOTS_PATH):
+        roots = _DEFAULT_ROOTS
+    else:
+        try:
+            with open(_ROOTS_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+            if not (isinstance(data, list) and data and all(isinstance(r, str) and r for r in data)):
+                raise ValueError("roots.json must be a non-empty list of non-empty strings")
             roots = data
-    except Exception:
-        pass
-    return [os.path.realpath(r) for r in roots]
+        except (OSError, ValueError) as exc:
+            _log({
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "event": "roots_invalid",
+                "path": _ROOTS_PATH,
+                "error": str(exc),
+            })
+            return []
+    try:
+        return [os.path.realpath(r) for r in roots]
+    except (OSError, ValueError) as exc:
+        _log({
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "event": "roots_invalid",
+            "path": _ROOTS_PATH,
+            "error": str(exc),
+        })
+        return []
 
 
 def _check_scope(path):
     """Return (realpath, None) on success or (None, error) on refusal."""
     if not isinstance(path, str) or not path.strip():
         return None, "path is required"
-    rp = os.path.realpath(path)
-    allowed = _roots()
+    try:
+        rp = os.path.realpath(path)
+        allowed = _roots()
+    except (OSError, ValueError) as exc:
+        return None, f"refused: {exc}"
     if not any(rp == r or rp.startswith(r + os.sep) for r in allowed):
         return None, (
             f"refused: {path} resolves to {rp}, outside the allowed roots {allowed}; "
             "edit roots.json next to the plugin to widen scope"
         )
-    name = os.path.basename(rp)
-    if name in _PROTECTED_BASENAMES or name.endswith(".envrc") or name.endswith(".env") or "/.git/" in rp:
-        return None, f"refused: {name} is a protected path"
+    reason = _protected_reason(os.path.basename(rp), rp)
+    if reason:
+        return None, f"refused: {reason}"
     return rp, None
 
 
@@ -126,10 +157,10 @@ def _edit_file(path, edits, tool, task_id):
         _log(entry)
         return json.dumps(payload, sort_keys=True)
 
-    rp, err = _check_scope(path)
-    if err:
-        return done({"success": False, "error": err})
     try:
+        rp, err = _check_scope(path)
+        if err:
+            return done({"success": False, "error": err})
         if not edits or not isinstance(edits, list):
             raise ValueError("edits must be a non-empty list")
         if len(edits) > _MAX_EDITS:
@@ -159,6 +190,14 @@ def _edit_file(path, edits, tool, task_id):
             except OSError:
                 pass
             os.replace(tmp, rp)
+            try:
+                dfd = os.open(os.path.dirname(rp), os.O_DIRECTORY)
+                try:
+                    os.fsync(dfd)
+                finally:
+                    os.close(dfd)
+            except OSError:
+                pass
         except Exception:
             try:
                 os.unlink(tmp)

@@ -5,7 +5,7 @@ counted or does not land at all.
 
 | Tool | What it does |
 |---|---|
-| `doc_replace` | One literal or regex replacement, occurrence-count checked, written atomically (temp file + rename, mode and owner preserved). |
+| `doc_replace` | One literal or regex replacement, occurrence-count checked, written atomically (temp file + rename, mode preserved, owner preserved when the process may chown). |
 | `doc_batch` | Many replacements in one call, applied in order against the evolving content, all-or-nothing. |
 
 ## Why
@@ -36,11 +36,14 @@ plugin. Without that file the default is `/home/hermes/hermes-designs`:
 ["/home/hermes/hermes-designs"]
 ```
 
-Protected paths are always refused: `.env`, `.env.*`, `.envrc`, and anything inside
-`.git`. Files over 8 MB, non-UTF-8 files, and batches over 200 edits are refused.
+Protected paths are always refused: `.env`, `.env.*`, `*.env`, `.envrc`, and any path
+inside a `.git` directory or a file named `.git`. Files over 8 MB, non-UTF-8 files, and
+batches over 200 edits are refused.
 
 `roots.json` and `log/` are user state. They are not in this repository and survive
-reinstalls.
+reinstalls. A malformed `roots.json` (invalid JSON, an empty list, or a non-string entry)
+fails closed: no path is allowed, and the refusal is written to the audit log as a
+`roots_invalid` event.
 
 ## Behaviour
 
