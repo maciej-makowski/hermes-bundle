@@ -1,0 +1,8 @@
+hermes-designs
+fediverse-deploy
+mcp-servers
+matrix-deploy
+hermes-skills
+proton-mcp
+rpi-setup
+machine-state

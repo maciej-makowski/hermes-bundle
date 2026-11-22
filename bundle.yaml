@@ -1,0 +1,14 @@
+# Component manifest read by scripts/*.sh. Not a Hermes format.
+version: 1
+repo: maciej-makowski/hermes-bundle
+components:
+  - id: design-doc-edit
+    type: plugin
+    path: plugins/design-doc-edit
+    enable: true
+  - id: holographic
+    type: catalog-plugin
+    enable: true
+  - id: homeassistant
+    type: catalog-plugin
+    enable: true

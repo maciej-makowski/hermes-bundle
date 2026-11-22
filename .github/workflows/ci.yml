@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  structure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: manifest and layout checks
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys
+          root = pathlib.Path('.')
+          problems = []
+          if (root / 'plugin.yaml').exists():
+              problems.append('root plugin.yaml must not exist')
+          for p in (root / 'plugins').glob('*/plugin.yaml'):
+              text = p.read_text()
+              name = next((l.split(':',1)[1].strip() for l in text.splitlines() if l.startswith('name:')), '')
+              if name != p.parent.name:
+                  problems.append(f'{p}: name {name!r} != directory {p.parent.name!r}')
+          for s in (root / 'skills').glob('*/'):
+              if not (s / 'SKILL.md').exists():
+                  problems.append(f'{s}: missing SKILL.md')
+          for msg in problems:
+              print('FAIL:', msg)
+          sys.exit(1 if problems else 0)
+          PY
+      - name: scrub gate
+        run: ./scripts/scrub-check.sh
