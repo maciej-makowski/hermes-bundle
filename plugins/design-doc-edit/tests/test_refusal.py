@@ -185,6 +185,23 @@ class FileEditTests(unittest.TestCase):
             target.unlink()
             os.rmdir(outside_dir)
 
+    def test_symlink_to_protected_file_refuses(self):
+        env = self.root / ".env"
+        env.write_text("SECRET=1\n", encoding="utf-8")
+        link = self.root / "innocent.md"
+        link.symlink_to(env)
+        try:
+            result = json.loads(
+                dd._edit_file(
+                    str(link), [{"find": "SECRET=1", "replace": "SECRET=2"}], "doc_replace", None
+                )
+            )
+            self.assertFalse(result["success"])
+            self.assertIn("protected", result["error"])
+            self.assertEqual(env.read_text(encoding="utf-8"), "SECRET=1\n")
+        finally:
+            link.unlink()
+
     def test_protected_basenames_refuse(self):
         for name in (".env", ".env.staging", ".env.example", ".envrc", "prod.env", "prod.envrc", ".git"):
             path = self.root / name
