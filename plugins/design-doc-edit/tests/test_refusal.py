@@ -574,6 +574,7 @@ class LimitsAndAtomicityTests(unittest.TestCase):
 
 class DefaultsTests(unittest.TestCase):
     def test_documented_defaults(self):
+        self.assertEqual(dd._PLUGIN_DIR, str(MODULE_PATH.parent))
         self.assertEqual(dd._DEFAULT_ROOTS, ["/home/hermes/hermes-designs"])
         self.assertEqual(dd._MAX_BYTES, 8 * 1024 * 1024)
         self.assertEqual(dd._MAX_EDITS, 200)
