@@ -21,9 +21,6 @@ components:
   - id: hermes-session-storage
     type: skill
     path: skills/hermes-session-storage
-  - id: quadlet-services
-    type: skill
-    path: skills/quadlet-services
   - id: nvme-drive-qualification
     type: skill
     path: skills/nvme-drive-qualification
