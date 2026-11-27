@@ -14,6 +14,25 @@ cd hermes-bundle
 ./scripts/install.sh --yes       # install everything, non-interactively
 ```
 
+The script is the all-in-one path: it installs the plugin, the catalog component, adds
+the tap and installs every skill. Run it straight from curl if you do not want a checkout:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/maciej-makowski/hermes-bundle/main/scripts/install.sh | bash -s -- --yes
+```
+
+Add `--allow-caution` to accept a caution scan verdict for the skills that carry it; the
+flag prints each acceptance, and a `dangerous` verdict is still refused.
+
+A pack installs the plugin half natively, pinned to one commit:
+
+```bash
+hermes plugins pack show ./hermes-pack.yaml
+hermes plugins pack install ./hermes-pack.yaml
+```
+
+A pack never installs the skills it lists, so skills always come from the tap.
+
 One component at a time:
 
 ```bash

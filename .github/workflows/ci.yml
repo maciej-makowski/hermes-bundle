@@ -58,6 +58,14 @@ jobs:
           for s in (root / 'skills').glob('*/'):
               if not (s / 'SKILL.md').exists():
                   problems.append(f'{s}: missing SKILL.md')
+          pack = root / 'hermes-pack.yaml'
+          if pack.exists():
+              import re
+              text = pack.read_text()
+              if not re.search(r'^\s*ref:\s*[0-9a-f]{40}\s*$', text, re.M):
+                  problems.append('hermes-pack.yaml: ref must be a full 40-character lowercase sha')
+              if 'subdir: plugins/design-doc-edit' not in text:
+                  problems.append('hermes-pack.yaml: missing the design-doc-edit subdir entry')
           for msg in problems:
               print('FAIL:', msg)
           sys.exit(1 if problems else 0)
