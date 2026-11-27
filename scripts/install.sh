@@ -3,13 +3,21 @@
 set -euo pipefail
 
 REPO="maciej-makowski/hermes-bundle"
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd || true)"
 HERMES="${HERMES_HOME:-$HOME/.hermes}"
-COMPONENT=""; REF=""; DRY=0; YES=0; DEPS=0; FORCE=0; ENABLE_MODE="default"
+COMPONENT=""; REF=""; DRY=0; YES=0; DEPS=0; FORCE=0; CAUTION=0; ENABLE_MODE="default"
+
+# When piped (curl ... | bash) there is no repo checkout; fetch the manifest.
+MANIFEST="$ROOT/bundle.yaml"
+if [ ! -f "$MANIFEST" ]; then
+  MANIFEST="$(mktemp)"
+  curl -fsSL "https://raw.githubusercontent.com/$REPO/main/bundle.yaml" -o "$MANIFEST"
+  trap 'rm -f "$MANIFEST"' EXIT
+fi
 
 usage() {
   cat <<'EOF'
-install.sh [--component ID] [--ref SHA] [--dry-run] [--enable|--no-enable] [--yes] [--yes-deps] [--force]
+install.sh [--component ID] [--ref SHA] [--dry-run] [--enable|--no-enable] [--yes] [--yes-deps] [--force] [--allow-caution]
 
   --component ID   install one component from bundle.yaml
   --ref SHA        pin the plugin install to a full 40-character commit
@@ -18,7 +26,8 @@ install.sh [--component ID] [--ref SHA] [--dry-run] [--enable|--no-enable] [--ye
   --no-enable      install disabled; the enable step is skipped
   --yes            non-interactive; required without a TTY
   --yes-deps       answer the Python dependency consent prompt
-  --force          reinstall over an existing copy; accepts a caution scan verdict
+  --force          reinstall over an existing copy
+  --allow-caution  pass --force to skills install, accepting a caution scan verdict
 EOF
 }
 
@@ -30,6 +39,7 @@ while [ $# -gt 0 ]; do
     --yes) YES=1; shift ;;
     --yes-deps) DEPS=1; shift ;;
     --force) FORCE=1; shift ;;
+    --allow-caution) CAUTION=1; shift ;;
     --enable) ENABLE_MODE="on"; shift ;;
     --no-enable) ENABLE_MODE="off"; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -53,7 +63,7 @@ manifest() {
     /^[[:space:]]*path:/ { path=$2 }
     /^[[:space:]]*enable:/ { en=$2 }
     END { if (id != "") print id "\t" type "\t" path "\t" en }
-  ' "$ROOT/bundle.yaml"
+  ' "$MANIFEST"
 }
 
 plugin_installed() {
@@ -103,7 +113,12 @@ install_skill() {
   if skill_installed "$id" && [ "$FORCE" -eq 1 ]; then
     run hermes skills uninstall "$id" --yes
   fi
-  run hermes skills install "$REPO/$path" --yes
+  local args=(hermes skills install "$REPO/$path" --yes)
+  if [ "$CAUTION" -eq 1 ]; then
+    echo "accepting a caution scan verdict for $id (--allow-caution)"
+    args+=(--force)
+  fi
+  run "${args[@]}"
 }
 
 copy_component() {

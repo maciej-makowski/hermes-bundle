@@ -14,6 +14,25 @@ cd hermes-bundle
 ./scripts/install.sh --yes       # install everything, non-interactively
 ```
 
+The script is the all-in-one path: it installs the plugin, the catalog component, adds
+the tap and installs every skill. Run it straight from curl if you do not want a checkout:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/maciej-makowski/hermes-bundle/main/scripts/install.sh | bash -s -- --yes
+```
+
+Add `--allow-caution` to accept a caution scan verdict for the skills that carry it; the
+flag prints each acceptance, and a `dangerous` verdict is still refused.
+
+A pack installs the plugin half natively, pinned to one commit:
+
+```bash
+hermes plugins pack show ./hermes-pack.yaml
+hermes plugins pack install ./hermes-pack.yaml
+```
+
+A pack never installs the skills it lists, so skills always come from the tap.
+
 One component at a time:
 
 ```bash
@@ -44,7 +63,7 @@ auto-update skip subdirectory installs, so the script loops over the manifest in
 |---|---|---|
 | design-doc-edit | plugin | `hermes plugins install .../plugins/design-doc-edit` |
 | holographic | catalog plugin | `hermes plugins install holographic` |
-| unslop, hermes-desktop-plugins, hermes-themes, hermes-session-storage, nvme-drive-qualification | skills | `hermes skills tap add maciej-makowski/hermes-bundle`, then install each |
+| unslop, hermes-desktop-plugins, hermes-themes, hermes-session-storage, nvme-drive-qualification, design-doc-adversarial-review, jump-box-ops, hermes-container-extension, hermes-container-restart-mechanism, strava-stack | skills | `hermes skills tap add maciej-makowski/hermes-bundle`, then install each |
 
 Desktop plugins, TUI widgets, skins and pets have no native install route; the script
 copies them into `$HERMES_HOME` and `doctor.sh` reports divergence. A desktop-only plugin
