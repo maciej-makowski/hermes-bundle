@@ -24,3 +24,18 @@ components:
   - id: nvme-drive-qualification
     type: skill
     path: skills/nvme-drive-qualification
+  - id: design-doc-adversarial-review
+    type: skill
+    path: skills/design-doc-adversarial-review
+  - id: jump-box-ops
+    type: skill
+    path: skills/jump-box-ops
+  - id: hermes-container-extension
+    type: skill
+    path: skills/hermes-container-extension
+  - id: hermes-container-restart-mechanism
+    type: skill
+    path: skills/hermes-container-restart-mechanism
+  - id: strava-stack
+    type: skill
+    path: skills/strava-stack
