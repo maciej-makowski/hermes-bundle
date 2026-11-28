@@ -77,7 +77,9 @@ rows = data if isinstance(data, list) else data.get("plugins", [])
 print(any(r.get("name") == sys.argv[1] for r in rows))
 ' "$1" 2>/dev/null || echo False
 }
-skill_installed() { hermes skills list --source hub 2>/dev/null | grep -qx "$1"; }
+skill_installed() {
+  hermes skills list --source hub 2>/dev/null | awk -v s="$1" '$1==s {found=1} END {exit(found?0:1)}'
+}
 
 clone_once() {
   if [ -z "${CLONE:-}" ]; then
@@ -135,15 +137,21 @@ copy_component() {
 }
 
 TAP_ADDED=0
+FAILURES=0
+fail() { echo "FAILED: $*" >&2; FAILURES=$((FAILURES + 1)); }
+
 while IFS=$'\t' read -r id type path en; do
   [ -n "$COMPONENT" ] && [ "$id" != "$COMPONENT" ] && continue
   case "$type" in
-    plugin) install_plugin "$id" "$REPO/$path" ;;
-    catalog-plugin) install_plugin "$id" "$id" ;;
+    plugin) install_plugin "$id" "$REPO/$path" || fail "$id" ;;
+    catalog-plugin) install_plugin "$id" "$id" || fail "$id" ;;
     skill)
-      if [ "$TAP_ADDED" -eq 0 ]; then run hermes skills tap add "$REPO"; TAP_ADDED=1; fi
-      install_skill "$id" "$path" ;;
-    widget|skin|pet) copy_component "$type" "$id" "$path" ;;
+      if [ "$TAP_ADDED" -eq 0 ]; then
+        run hermes skills tap add "$REPO" || fail "tap"
+        TAP_ADDED=1
+      fi
+      install_skill "$id" "$path" || fail "$id" ;;
+    widget|skin|pet) copy_component "$type" "$id" "$path" || fail "$id" ;;
     desktop-plugin) echo "manual: install $id from the Desktop Install from Git dialog, pinned to a reviewed commit" ;;
     *) echo "unknown component type for $id: $type" >&2; exit 2 ;;
   esac
@@ -155,17 +163,21 @@ if [ "$DRY" -eq 0 ]; then
     [ -n "$COMPONENT" ] && [ "$id" != "$COMPONENT" ] && continue
     case "$type" in
       plugin|catalog-plugin)
-        if [ "$(plugin_installed "$id")" != "True" ]; then echo "FAIL: $id not installed" >&2; exit 1; fi
+        if [ "$(plugin_installed "$id")" != "True" ]; then fail "$id not installed"; fi
         if [ "$en" = "true" ] && [ "$ENABLE_MODE" != "off" ]; then
           if ! hermes plugins list --json 2>/dev/null | grep -q "\"name\": \"$id\""; then
-            echo "FAIL: $id missing after enable" >&2; exit 1
+            fail "$id missing after enable"
           fi
         fi ;;
       skill)
-        if ! skill_installed "$id"; then echo "FAIL: skill $id not installed" >&2; exit 1; fi ;;
+        if ! skill_installed "$id"; then fail "skill $id not installed"; fi ;;
       widget|skin|pet)
-        if [ ! -e "$HERMES/$path" ] && [ ! -e "$HERMES/$(basename "$path")" ]; then echo "FAIL: $id not copied" >&2; exit 1; fi ;;
+        if [ ! -e "$HERMES/$path" ] && [ ! -e "$HERMES/$(basename "$path")" ]; then fail "$id not copied"; fi ;;
     esac
   done < <(manifest)
+  if [ "$FAILURES" -gt 0 ]; then
+    echo "$FAILURES component(s) did not install; the rest are in place. A 'dangerous' scan verdict cannot be overridden; a blocked skill needs a reword or has to stay local." >&2
+    exit 1
+  fi
   echo "OK"
 fi
