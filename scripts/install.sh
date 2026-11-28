@@ -3,7 +3,8 @@
 set -euo pipefail
 
 REPO="maciej-makowski/hermes-bundle"
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd || true)"
+_src="${BASH_SOURCE[0]:-$0}"
+ROOT="$(cd "$(dirname "$_src")/.." 2>/dev/null && pwd)" || ROOT=""
 HERMES="${HERMES_HOME:-$HOME/.hermes}"
 COMPONENT=""; REF=""; DRY=0; YES=0; DEPS=0; FORCE=0; CAUTION=0; ENABLE_MODE="default"
 
@@ -81,13 +82,11 @@ skill_installed() {
   hermes skills list --source hub 2>/dev/null | awk -v s="$1" '$1==s {found=1} END {exit(found?0:1)}'
 }
 
-clone_once() {
-  if [ -z "${CLONE:-}" ]; then
-    CLONE="$(mktemp -d)"
-    trap 'rm -rf "$CLONE"' EXIT
-    run git clone --depth 1 "https://github.com/$REPO.git" "$CLONE/repo" >/dev/null
-  fi
-  printf '%s' "$CLONE/repo"
+ensure_clone() {
+  if [ -n "${CLONE:-}" ]; then return 0; fi
+  CLONE="$(mktemp -d)"
+  trap 'rm -rf "$CLONE"' EXIT
+  run git clone --depth 1 "https://github.com/$REPO.git" "$CLONE/repo" >/dev/null
 }
 
 install_plugin() {
@@ -131,9 +130,30 @@ copy_component() {
     pet) dest="$HERMES/pets" ;;
     *) echo "unknown copy type: $type" >&2; return 2 ;;
   esac
-  local src; src="$(clone_once)/$path"
+  local src; ensure_clone; src="$CLONE/repo/$path"
   run mkdir -p "$dest"
   run cp -R "$src" "$dest/"
+}
+
+copy_skill_local() {
+  local id="$1" path="$2"
+  local dest="$HERMES/skills/$id"
+  if [ "$DRY" -eq 1 ]; then
+    printf 'DRY: cp -R %s %s/skills/\n' "$path" "$HERMES"
+    return 0
+  fi
+  local src; ensure_clone; src="$CLONE/repo/$path"
+  if [ -d "$dest" ] && [ "$FORCE" -ne 1 ] && diff -rq "$src" "$dest" >/dev/null 2>&1; then
+    echo "already installed, skipping: $id"; return 0
+  fi
+  if [ -d "$dest" ]; then
+    mkdir -p "$HERMES/backups"
+    cp -R "$dest" "$HERMES/backups/$id-$(date -u +%Y%m%dT%H%M%SZ)"
+  fi
+  mkdir -p "$HERMES/skills"
+  cp -R "$src" "$HERMES/skills/" || return 1
+  [ -f "$dest/SKILL.md" ] || { echo "copy failed: $dest" >&2; return 1; }
+  echo "copied $id into $HERMES/skills (a copied skill is not scanned by the tap)"
 }
 
 TAP_ADDED=0
@@ -151,6 +171,7 @@ while IFS=$'\t' read -r id type path en; do
         TAP_ADDED=1
       fi
       install_skill "$id" "$path" || fail "$id" ;;
+    skill-local) copy_skill_local "$id" "$path" || fail "$id" ;;
     widget|skin|pet) copy_component "$type" "$id" "$path" || fail "$id" ;;
     desktop-plugin) echo "manual: install $id from the Desktop Install from Git dialog, pinned to a reviewed commit" ;;
     *) echo "unknown component type for $id: $type" >&2; exit 2 ;;
@@ -171,6 +192,8 @@ if [ "$DRY" -eq 0 ]; then
         fi ;;
       skill)
         if ! skill_installed "$id"; then fail "skill $id not installed"; fi ;;
+      skill-local)
+        if [ ! -f "$HERMES/skills/$id/SKILL.md" ]; then fail "skill $id not copied"; fi ;;
       widget|skin|pet)
         if [ ! -e "$HERMES/$path" ] && [ ! -e "$HERMES/$(basename "$path")" ]; then fail "$id not copied"; fi ;;
     esac

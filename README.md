@@ -33,6 +33,13 @@ hermes plugins pack install ./hermes-pack.yaml
 
 A pack never installs the skills it lists, so skills always come from the tap.
 
+`skill-local` components are copied straight into `$HERMES_HOME/skills/` by the script,
+not installed through the tap. That route exists for first-party skills the Skills Guard
+refuses: the guard blocks a `dangerous` verdict unconditionally, `--force` does not
+override it, and a skill you wrote and audited should not be locked out of your own
+instance. A copied skill is not scanned, is not tracked by `hermes skills update`, and is
+refreshed by `scripts/update.sh` instead. Copy only skills you trust.
+
 One component at a time:
 
 ```bash
@@ -63,6 +70,7 @@ auto-update skip subdirectory installs, so the script loops over the manifest in
 |---|---|---|
 | design-doc-edit | plugin | `hermes plugins install .../plugins/design-doc-edit` |
 | holographic | catalog plugin | `hermes plugins install holographic` |
+| design-doc-adversarial-review | skill-local | copied into `$HERMES_HOME/skills/` by the script |
 | unslop, hermes-desktop-plugins, hermes-themes, hermes-session-storage, nvme-drive-qualification, jump-box-ops, hermes-container-extension, hermes-container-restart-mechanism, strava-stack | skills | `hermes skills tap add maciej-makowski/hermes-bundle`, then install each |
 
 Desktop plugins, TUI widgets, skins and pets have no native install route; the script

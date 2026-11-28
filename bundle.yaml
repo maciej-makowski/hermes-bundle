@@ -9,6 +9,9 @@ components:
   - id: holographic
     type: catalog-plugin
     enable: true
+  - id: design-doc-adversarial-review
+    type: skill-local
+    path: skills/design-doc-adversarial-review
   - id: unslop
     type: skill
     path: skills/unslop
