@@ -34,6 +34,7 @@ for surface in tui-widgets skins pets; do
   for src in "$CLONE"/repo/"$surface"/*; do
     [ -e "$src" ] || continue
     name="$(basename "$src")"
+    case "$name" in README.md) continue ;; esac
     if diff -rq "$src" "$HERMES/$surface/$name" >/dev/null 2>&1; then echo "ok $surface: $name"; else echo "DRIFT $surface: $name"; status=1; fi
   done
 done
