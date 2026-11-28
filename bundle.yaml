@@ -9,6 +9,9 @@ components:
   - id: holographic
     type: catalog-plugin
     enable: true
+  - id: design-doc-adversarial-review
+    type: skill-local
+    path: skills/design-doc-adversarial-review
   - id: unslop
     type: skill
     path: skills/unslop
@@ -24,9 +27,6 @@ components:
   - id: nvme-drive-qualification
     type: skill
     path: skills/nvme-drive-qualification
-  - id: design-doc-adversarial-review
-    type: skill
-    path: skills/design-doc-adversarial-review
   - id: jump-box-ops
     type: skill
     path: skills/jump-box-ops

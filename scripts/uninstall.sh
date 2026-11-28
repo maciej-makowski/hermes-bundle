@@ -22,6 +22,12 @@ while IFS=$'\t' read -r id type path; do
         hermes plugins remove "$id"
       fi ;;
     skill) hermes skills uninstall "$id" --yes || true ;;
+    skill-local)
+      target="$HERMES/skills/$id"
+      if [ -n "$target" ] && [ "$target" != "$HERMES/skills" ] && [ -d "$target" ]; then
+        cp -R "$target" "$HERMES/backups/$id-$(date -u +%Y%m%dT%H%M%SZ)"
+        rm -rf -- "$target"
+      fi ;;
     widget|skin|pet)
       dest="$HERMES/$(case "$type" in widget) echo tui-widgets;; skin) echo skins;; pet) echo pets;; esac)"
       target="$dest/$(basename "$path")"
